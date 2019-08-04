@@ -94,11 +94,12 @@
          (+ (x origin) (if flip-x tile-width 0))
          (+ (y origin) (if flip-y 0 tile-height)))
         (scale-canvas (if flip-x -1 1) (if flip-y 1 -1))
-        (draw-image *zero-vec* image
-                    :origin (vec2 (cl-tiled:tile-pixel-x tile)
-                                  (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
-                    :width tile-width
-                    :height tile-height)))))
+        (without-antialiased-shapes
+          (draw-image *zero-vec* image
+                      :origin (vec2 (cl-tiled:tile-pixel-x tile)
+                                    (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
+                      :width tile-width
+                      :height tile-height))))))
 
 (defun draw-tilemap (tilemap)
   (draw tilemap))
