@@ -6,6 +6,7 @@
    #:alexandria
    #:assoc-value
    #:when-let
+   #:when-let*
    #:if-let)
   (:export
    #:define-tilemap
@@ -47,8 +48,11 @@
 (defun tileset-name (tilemap-name tileset)
   (alexandria:symbolicate tilemap-name  '$tileset$ (cl-tiled:tileset-name tileset)))
 
-(defun image-name (tilemap-name tileset)
-  (alexandria:symbolicate tilemap-name  '$image$ (cl-tiled:tileset-name tileset)))
+(defun tileset-image-name (tilemap-name tileset)
+  (alexandria:symbolicate tilemap-name  '$tileset-image$ (cl-tiled:tileset-name tileset)))
+
+(defun image-layer-image-name (tilemap-name layer)
+  (alexandria:symbolicate tilemap-name '$layer-image$ (cl-tiled:layer-name layer)))
 
 (defmacro define-tilemap (name path &key encoding)
   (let* ((path (eval path))
@@ -57,6 +61,7 @@
       `(progn
          (define-text ,name ,path :encoding ,encoding)
          (register-tilemap-resource ',name ,path)
+         ;; Register each tileset with an image
          ,@(loop for tileset in (cl-tiled:map-tilesets map)
                  for image = (cl-tiled:tileset-image tileset)
                  when (subtypep (class-of tileset) 'cl-tiled:external-tileset)
@@ -65,12 +70,30 @@
                             `((define-text ,tileset-name ,tileset-path :encoding ,encoding)
                               (register-tilemap-resource ',tileset-name ,tileset-path)))
                  when image
-                   append (let ((image-name (image-name name tileset))
+                   append (let ((image-name (tileset-image-name name tileset))
                                 (image-path (cl-tiled:image-source image)))
 
                             `((define-image ,image-name ,image-path
                                 :use-nearest-interpolation t)
-                              (register-tilemap-resource ',image-name ,image-path))))))))
+                              (register-tilemap-resource ',image-name ,image-path))))
+         ;; Hunt down any image layers and register their images as well
+         ,@(let ((forms nil))
+             (labels ((recurse (layer)
+                        (typecase layer
+                          (cl-tiled:image-layer
+                           (when-let* ((image (cl-tiled:layer-image layer))
+                                       (image-path (and (typep image 'cl-tiled:external-tiled-image)
+                                                        (cl-tiled:image-source image)))
+                                       (image-name (image-layer-image-name name layer)))
+                             (push `(define-image ,image-name ,image-path
+                                      :use-nearest-interpolation t)
+                                   forms)
+                             (push `(register-tilemap-resource ',image-name ,image-path)
+                                   forms)))
+                          (cl-tiled:group-layer
+                           (map nil #'recurse (cl-tiled:group-layers layer))))))
+               (map nil #'recurse (cl-tiled:map-layers map)))
+             forms)))))
 
 (defun load-tilemap (name)
   (when-let ((resource-path (find-resource-path name)))
@@ -124,8 +147,11 @@
     (draw cell)))
 
 (defmethod draw ((layer cl-tiled:image-layer))
-  ;; TODO Draw image layers
-  )
+  (when-let ((image (find-resource-name (cl-tiled:image-source (cl-tiled:layer-image layer)))))
+    (with-pushed-canvas ()
+      (translate-canvas 0 (image-height image))
+      (scale-canvas 1 -1)
+      (draw-image *zero-vec* image))))
 
 (defvar *object-color* (vec4 0 0 0 1)
   "Color to draw objects with.")
