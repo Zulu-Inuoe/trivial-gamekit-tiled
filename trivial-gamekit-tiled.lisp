@@ -41,6 +41,9 @@
 (defun cons->vec2 (cons)
   (vec2 (car cons) (cdr cons)))
 
+(defun degrees->radians (degrees)
+  (/ (* pi degrees) 180))
+
 (defun tileset-name (tilemap-name tileset)
   (alexandria:symbolicate tilemap-name  '$tileset$ (cl-tiled:tileset-name tileset)))
 
@@ -82,6 +85,21 @@
           ,@body)
      (ge.vg:antialias-shapes t)))
 
+(defun draw-tile (tile origin &key flip-x flip-y)
+  (when-let ((image (find-resource-name (cl-tiled:image-source (cl-tiled:tile-image tile)))))
+    (let ((tile-width (cl-tiled:tile-width tile))
+          (tile-height (cl-tiled:tile-height tile)))
+      (with-pushed-canvas ()
+        (translate-canvas
+         (+ (x origin) (if flip-x tile-width 0))
+         (+ (y origin) (if flip-y 0 tile-height)))
+        (scale-canvas (if flip-x -1 1) (if flip-y 1 -1))
+        (draw-image *zero-vec* image
+                    :origin (vec2 (cl-tiled:tile-pixel-x tile)
+                                  (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
+                    :width tile-width
+                    :height tile-height)))))
+
 (defun draw-tilemap (tilemap)
   (draw tilemap))
 
@@ -95,26 +113,10 @@
       (call-next-method))))
 
 (defmethod draw ((cell cl-tiled:cell))
-  (let* ((tile (cl-tiled:cell-tile cell))
-         (tile-image (cl-tiled:tile-image tile)))
-    (when tile-image
-      (let ((image (find-resource-name (cl-tiled:image-source tile-image)))
-            (flip-x (cl-tiled:cell-flipped-horizontal cell))
-            (flip-y (cl-tiled:cell-flipped-vertical cell))
-            (tile-width (cl-tiled:tile-width tile))
-            (tile-height (cl-tiled:tile-height tile)))
-        (with-pushed-canvas ()
-          (translate-canvas
-           (+ (cl-tiled:cell-x cell) (if flip-x tile-width 0))
-           (+ (cl-tiled:cell-y cell) (if flip-y 0 tile-height)))
-          (scale-canvas (if flip-x -1 1) (if flip-y 1 -1))
-          (without-antialiased-shapes
-            (draw-image *zero-vec*
-                        image
-                        :origin (vec2 (cl-tiled:tile-pixel-x tile)
-                                      (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
-                        :width tile-width
-                        :height tile-height)))))))
+  (draw-tile (cl-tiled:cell-tile cell) (vec2 (cl-tiled:cell-x cell)
+                                             (cl-tiled:cell-y cell))
+             :flip-x (cl-tiled:cell-flipped-horizontal cell)
+             :flip-y (cl-tiled:cell-flipped-vertical cell)))
 
 (defmethod draw ((layer cl-tiled:tile-layer))
   (dolist (cell (cl-tiled:layer-cells layer))
