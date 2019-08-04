@@ -1,4 +1,4 @@
-(defpackage #:trivial-tiled
+(defpackage #:trivial-gamekit-tiled
   (:use
    #:cl
    #:trivial-gamekit)
@@ -8,10 +8,26 @@
    #:when-let
    #:if-let)
   (:export
-   #:current-map-path
-   #:run))
+   #:define-tilemap
+   #:load-tilemap
+   #:draw-tilemap))
 
-(in-package #:trivial-tiled)
+(in-package #:trivial-gamekit-tiled)
+
+(defvar *tilemap-resource-map* (make-hash-table :test #'equal))
+(defvar *zero-vec* (vec2 0 0))
+
+(defun register-tilemap-resource (name path)
+  (let ((path (namestring path)))
+    (setf (gethash path *tilemap-resource-map*) name
+          (gethash name *tilemap-resource-map*) path)))
+
+(defun find-resource-name (path)
+  (let ((path (namestring path)))
+    (gethash path *tilemap-resource-map*)))
+
+(defun find-resource-path (name)
+  (gethash name *tilemap-resource-map*))
 
 (defun tiled-color->color (c)
   "Convert from a `cl-tiled:tiled-color' into a `gamekit:vec4' rgba [0, 1] color"
@@ -25,53 +41,49 @@
 (defun cons->vec2 (cons)
   (vec2 (car cons) (cdr cons)))
 
-(defgame tiled-example ()
-  ((current-map-path
-    :initform nil
-    :accessor current-map-path)
-   (current-map
-    :initform nil
-    :accessor current-map)
-   (resource-mappings
-    :initform nil
-    :accessor resource-mappings
-    :documentation "An alist of (thing . resource-id). Used to map a `cl-tiled:tiled-image' to a resource-id (a symbol)")))
+(defun tileset-name (tilemap-name tileset)
+  (alexandria:symbolicate tilemap-name  '$tileset$ (cl-tiled:tileset-name tileset)))
 
-(defun run (&optional map-path)
-  (gamekit:start 'tiled-example)
-  (when map-path
-    (setf (current-map-path (gamekit)) map-path))
-  (gamekit))
+(defun image-name (tilemap-name tileset)
+  (alexandria:symbolicate tilemap-name  '$image$ (cl-tiled:tileset-name tileset)))
 
-(defun put-resource (thing resource)
-  (push (cons thing resource) (resource-mappings (gamekit))))
+(defmacro define-tilemap (name path &key encoding)
+  (let* ((path (eval path))
+         (map (cl-tiled:load-map path)))
+    (alexandria:once-only (encoding)
+      `(progn
+         (define-text ,name ,path :encoding ,encoding)
+         (register-tilemap-resource ',name ,path)
+         ,@(loop for tileset in (cl-tiled:map-tilesets map)
+                 for image = (cl-tiled:tileset-image tileset)
+                 when (subtypep (class-of tileset) 'cl-tiled:external-tileset)
+                   append (let ((tileset-name (tileset-name name tileset))
+                                (tileset-path (cl-tiled:tileset-source tileset)))
+                            `((define-text ,tileset-name ,tileset-path :encoding ,encoding)
+                              (register-tilemap-resource ',tileset-name ,tileset-path)))
+                 when image
+                   append (let ((image-name (image-name name tileset))
+                                (image-path (cl-tiled:image-source image)))
 
-(defun get-resource (thing)
-  (assoc-value (resource-mappings (gamekit)) thing))
+                            `((define-image ,image-name ,image-path
+                                :use-nearest-interpolation t)
+                              (register-tilemap-resource ',image-name ,image-path))))))))
 
-(defmethod (setf current-map-path) :after (value (app tiled-example))
-  "Try loading the map after updating the path."
-  (let (success)
-    (unwind-protect (setf (current-map app) (cl-tiled:load-map value)
-                          success t)
-      (unless success
-        (setf (current-map app) nil)))))
+(defun load-tilemap (name)
+  (when-let ((resource-path (find-resource-path name)))
+    (flet ((%load-resource (path)
+             (get-text (find-resource-name path))))
+      (cl-tiled:load-map resource-path #'%load-resource))))
 
-(defmethod (setf current-map) :before (value (app tiled-example))
-  ;; Unregister any previous resource
-  (setf (resource-mappings app) nil)
-  (when value
-    (dolist (tileset (cl-tiled:map-tilesets value))
-      ;; TODO: Need to support images in individual tiles as opposed to just in tilesets.
-      (let ((image (cl-tiled:tileset-image tileset)))
-        (when image
-          ;; NOTE: Hacky way to get runtime image loading by dynamically defining new resources
-          (let ((sym (intern (cl-tiled:tileset-name tileset) :trivial-tiled)))
-            (gamekit::register-game-resource sym (cl-tiled:image-source image)
-                                             '(:use-nearest-interpolation t)
-                                             :image :type :png)
-            (gamekit::autoprepare sym)
-            (put-resource image sym)))))))
+(defmacro without-antialiased-shapes (&body body)
+  `(unwind-protect
+        (progn
+          (ge.vg:antialias-shapes nil)
+          ,@body)
+     (ge.vg:antialias-shapes t)))
+
+(defun draw-tilemap (tilemap)
+  (draw tilemap))
 
 (defmethod draw :around ((layer cl-tiled:layer))
   ;; Don't draw invisible layers
@@ -84,9 +96,10 @@
 
 (defmethod draw ((cell cl-tiled:cell))
   (let* ((tile (cl-tiled:cell-tile cell))
-         (image (get-resource (cl-tiled:tile-image tile))))
-    (when image
-      (let ((flip-x (cl-tiled:cell-flipped-horizontal cell))
+         (tile-image (cl-tiled:tile-image tile)))
+    (when tile-image
+      (let ((image (find-resource-name (cl-tiled:image-source tile-image)))
+            (flip-x (cl-tiled:cell-flipped-horizontal cell))
             (flip-y (cl-tiled:cell-flipped-vertical cell))
             (tile-width (cl-tiled:tile-width tile))
             (tile-height (cl-tiled:tile-height tile)))
@@ -95,12 +108,13 @@
            (+ (cl-tiled:cell-x cell) (if flip-x tile-width 0))
            (+ (cl-tiled:cell-y cell) (if flip-y 0 tile-height)))
           (scale-canvas (if flip-x -1 1) (if flip-y 1 -1))
-          (draw-image (vec2 0 0)
-                      image
-                      :origin (vec2 (cl-tiled:tile-pixel-x tile)
-                                    (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
-                      :width tile-width
-                      :height tile-height))))))
+          (without-antialiased-shapes
+            (draw-image *zero-vec*
+                        image
+                        :origin (vec2 (cl-tiled:tile-pixel-x tile)
+                                      (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
+                        :width tile-width
+                        :height tile-height)))))))
 
 (defmethod draw ((layer cl-tiled:tile-layer))
   (dolist (cell (cl-tiled:layer-cells layer))
@@ -121,14 +135,14 @@
 
 (defmethod draw ((object cl-tiled:ellipse-object))
   ;; TODO Need to fix ellipse-rx and ry so they're halved coming out of cl-tiled
-  (let ((rx (/ (cl-tiled:ellipse-rx object) 2))
-        (ry (/ (cl-tiled:ellipse-ry object) 2)))
-    (draw-ellipse (vec2 rx ry)
-                  rx ry
+  (let ((rx (cl-tiled:ellipse-rx object))
+        (ry (cl-tiled:ellipse-ry object)))
+    (translate-canvas rx ry)
+    (draw-ellipse *zero-vec* rx ry
                   :stroke-paint *object-color*)))
 
 (defmethod draw ((object cl-tiled:rect-object))
-  (draw-rect (vec2 0 0)
+  (draw-rect *zero-vec*
              (cl-tiled:rect-width object)
              (cl-tiled:rect-height object)
              :stroke-paint *object-color*))
@@ -172,13 +186,3 @@
     ;; Draw out each layer
     (dolist (layer (cl-tiled:map-layers map))
       (draw layer))))
-
-(defmethod draw ((app tiled-example))
-  (when (current-map app)
-    (handler-case (draw (current-map app))
-      (error (e)
-        (warn "Failed to draw ~A:~%~A~%" (current-map app) e)
-        (setf (current-map app) nil))))
-  (when (current-map-path app)
-    (draw-text (namestring (current-map-path app)) (vec2 5 (- (canvas-height) 20)))))
-
