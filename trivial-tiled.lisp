@@ -34,23 +34,17 @@
     :accessor resource-mappings
     :documentation "An alist of (thing . resource-id). Used to map a `cl-tiled:tiled-image' to a resource-id (a symbol)")))
 
-(defvar *app* nil
-  "The 'current' `tiled-example' application.")
-
 (defun run (&optional map-path)
   (gamekit:start 'tiled-example)
   (when map-path
-    (setf (current-map-path *app*) map-path))
-  *app*)
-
-(defmethod post-initialize ((app tiled-example))
-  (setf *app* app))
+    (setf (current-map-path (gamekit)) map-path))
+  (gamekit))
 
 (defun put-resource (thing resource)
-  (push (cons thing resource) (resource-mappings *app*)))
+  (push (cons thing resource) (resource-mappings (gamekit))))
 
 (defun get-resource (thing)
-  (assoc-value (resource-mappings *app*) thing))
+  (assoc-value (resource-mappings (gamekit)) thing))
 
 (defmethod (setf current-map-path) :after (value (app tiled-example))
   "Try loading the map after updating the path."
