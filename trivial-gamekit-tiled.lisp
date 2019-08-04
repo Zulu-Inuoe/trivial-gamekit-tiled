@@ -165,7 +165,6 @@
       (call-next-method))))
 
 (defmethod draw ((object cl-tiled:ellipse-object))
-  ;; TODO Need to fix ellipse-rx and ry so they're halved coming out of cl-tiled
   (let ((rx (cl-tiled:ellipse-rx object))
         (ry (cl-tiled:ellipse-ry object)))
     (translate-canvas rx ry)
