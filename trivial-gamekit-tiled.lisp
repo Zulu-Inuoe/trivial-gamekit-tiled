@@ -130,10 +130,11 @@
   "Color to draw objects with.")
 
 (defmethod draw :around ((object cl-tiled:object))
-  (with-pushed-canvas ()
-    (translate-canvas (cl-tiled:object-x object)
-                      (cl-tiled:object-y object))
-    (call-next-method)))
+  (when (cl-tiled:object-visible object)
+    (with-pushed-canvas ()
+      (translate-canvas (cl-tiled:object-x object)
+                        (cl-tiled:object-y object))
+      (call-next-method))))
 
 (defmethod draw ((object cl-tiled:ellipse-object))
   ;; TODO Need to fix ellipse-rx and ry so they're halved coming out of cl-tiled
