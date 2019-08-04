@@ -134,6 +134,7 @@
     (with-pushed-canvas ()
       (translate-canvas (cl-tiled:object-x object)
                         (cl-tiled:object-y object))
+      (rotate-canvas (degrees->radians (cl-tiled:object-rotation object)))
       (call-next-method))))
 
 (defmethod draw ((object cl-tiled:ellipse-object))
