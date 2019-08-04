@@ -151,7 +151,8 @@
     (with-pushed-canvas ()
       (translate-canvas 0 (image-height image))
       (scale-canvas 1 -1)
-      (draw-image *zero-vec* image))))
+      (without-antialiased-shapes
+        (draw-image *zero-vec* image)))))
 
 (defvar *object-color* (vec4 0 0 0 1)
   "Color to draw objects with.")
