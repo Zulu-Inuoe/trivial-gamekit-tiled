@@ -158,8 +158,11 @@
                  *object-color*))
 
 (defmethod draw ((object cl-tiled:tile-object))
-  ;; TODO
-  )
+  (let ((tile (cl-tiled:object-tile object)))
+    (draw-tile tile
+               (vec2 0 (- (cl-tiled:tile-height tile )))
+               :flip-x (cl-tiled:object-flipped-horizontal object)
+               :flip-y (cl-tiled:object-flipped-vertical object))))
 
 (defmethod draw ((object cl-tiled:text-object))
   ;; TODO
