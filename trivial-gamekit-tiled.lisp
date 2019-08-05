@@ -51,6 +51,9 @@
 (defun tileset-image-name (tilemap-name tileset)
   (alexandria:symbolicate tilemap-name  '$tileset-image$ (cl-tiled:tileset-name tileset)))
 
+(defun tileset-tile-image-name (tilemap-name tileset tile)
+  (alexandria:symbolicate tilemap-name '$tileset-tile-image$ (cl-tiled:tileset-name tileset) "[" (princ-to-string (cl-tiled:tile-id tile)) "]"))
+
 (defun image-layer-image-name (tilemap-name layer)
   (alexandria:symbolicate tilemap-name '$layer-image$ (cl-tiled:layer-name layer)))
 
@@ -64,7 +67,7 @@
          ;; Register each tileset with an image
          ,@(loop for tileset in (cl-tiled:map-tilesets map)
                  for image = (cl-tiled:tileset-image tileset)
-                 when (subtypep (class-of tileset) 'cl-tiled:external-tileset)
+                 when (typep tileset 'cl-tiled:external-tileset)
                    append (let ((tileset-name (tileset-name name tileset))
                                 (tileset-path (cl-tiled:tileset-source tileset)))
                             `((define-text ,tileset-name ,tileset-path :encoding ,encoding)
@@ -75,7 +78,16 @@
 
                             `((define-image ,image-name ,image-path
                                 :use-nearest-interpolation t)
-                              (register-tilemap-resource ',image-name ,image-path))))
+                              (register-tilemap-resource ',image-name ,image-path)))
+                 append (loop for tile in (cl-tiled:tileset-tiles tileset)
+                              for image = (cl-tiled:tile-image tile)
+                              when (and (typep tile 'cl-tiled:tiled-tileset-image-tile)
+                                        (typep image 'cl-tiled:external-tiled-image))
+                                append (let ((image-name (tileset-tile-image-name name tileset tile))
+                                             (image-path (cl-tiled:image-source image)))
+                                         `((define-image ,image-name ,image-path
+                                             :use-nearest-interpolation t)
+                                           (register-tilemap-resource ',image-name ,image-path)))))
          ;; Hunt down any image layers and register their images as well
          ,@(let ((forms nil))
              (labels ((recurse (layer)
@@ -110,8 +122,19 @@
 
 (defun draw-tile (tile origin &key flip-x flip-y width height)
   (when-let ((image (find-resource-name (cl-tiled:image-source (cl-tiled:tile-image tile)))))
-    (let ((tile-width (cl-tiled:tile-width tile))
-          (tile-height (cl-tiled:tile-height tile)))
+    (multiple-value-bind (tile-origin tile-width tile-height)
+        (etypecase tile
+          (cl-tiled:tiled-tileset-image-tile
+           (values
+            *zero-vec*
+            (image-width image)
+            (image-height image)))
+          (t
+           (values
+            (vec2 (cl-tiled:tile-pixel-x tile)
+                  (- (image-height image) (cl-tiled:tile-height tile) (cl-tiled:tile-pixel-y tile)))
+            (cl-tiled:tile-width tile)
+            (cl-tiled:tile-height tile))))
       (with-pushed-canvas ()
         (when width
           (scale-canvas (/ width tile-width) 1))
@@ -123,8 +146,7 @@
         (scale-canvas (if flip-x -1 1) (if flip-y 1 -1))
         (without-antialiased-shapes
           (draw-image *zero-vec* image
-                      :origin (vec2 (cl-tiled:tile-pixel-x tile)
-                                    (- (image-height image) tile-height (cl-tiled:tile-pixel-y tile)))
+                      :origin tile-origin
                       :width tile-width
                       :height tile-height))))))
 
