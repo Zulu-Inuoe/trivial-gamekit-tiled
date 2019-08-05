@@ -138,7 +138,8 @@
       ;; Offset layer x/y
       (translate-canvas (cl-tiled:layer-offset-x layer)
                         (cl-tiled:layer-offset-y layer))
-      (call-next-method))))
+      (ge.vg:with-alpha ((cl-tiled:layer-opacity layer))
+        (call-next-method)))))
 
 (defmethod draw ((cell cl-tiled:cell))
   (with-pushed-canvas ()
