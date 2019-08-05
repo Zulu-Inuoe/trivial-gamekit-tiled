@@ -108,14 +108,18 @@
           ,@body)
      (ge.vg:antialias-shapes t)))
 
-(defun draw-tile (tile origin &key flip-x flip-y)
+(defun draw-tile (tile origin &key flip-x flip-y width height)
   (when-let ((image (find-resource-name (cl-tiled:image-source (cl-tiled:tile-image tile)))))
     (let ((tile-width (cl-tiled:tile-width tile))
           (tile-height (cl-tiled:tile-height tile)))
       (with-pushed-canvas ()
+        (when width
+          (scale-canvas (/ width tile-width) 1))
+        (when height
+          (scale-canvas 1 (/ height tile-height)))
         (translate-canvas
          (+ (x origin) (if flip-x tile-width 0))
-         (+ (y origin) (if flip-y 0 tile-height)))
+         (+ (y origin) (if flip-y (- tile-height) 0)))
         (scale-canvas (if flip-x -1 1) (if flip-y 1 -1))
         (without-antialiased-shapes
           (draw-image *zero-vec* image
@@ -137,14 +141,17 @@
       (call-next-method))))
 
 (defmethod draw ((cell cl-tiled:cell))
-  (draw-tile (cl-tiled:cell-tile cell) (vec2 (cl-tiled:cell-x cell)
-                                             (cl-tiled:cell-y cell))
-             :flip-x (cl-tiled:cell-flipped-horizontal cell)
-             :flip-y (cl-tiled:cell-flipped-vertical cell)))
+  (with-pushed-canvas ()
+    (translate-canvas (cl-tiled:cell-x cell) (cl-tiled:cell-y cell))
+    (draw-tile (cl-tiled:cell-tile cell) *zero-vec*
+               :flip-x (cl-tiled:cell-flipped-horizontal cell)
+               :flip-y (cl-tiled:cell-flipped-vertical cell))))
 
 (defmethod draw ((layer cl-tiled:tile-layer))
-  (dolist (cell (cl-tiled:layer-cells layer))
-    (draw cell)))
+  (with-pushed-canvas ()
+    (translate-canvas 0 (cl-tiled:layer-tile-height layer))
+    (dolist (cell (cl-tiled:layer-cells layer))
+      (draw cell))))
 
 (defmethod draw ((layer cl-tiled:image-layer))
   (when-let ((image (find-resource-name (cl-tiled:image-source (cl-tiled:layer-image layer)))))
@@ -188,10 +195,11 @@
 
 (defmethod draw ((object cl-tiled:tile-object))
   (let ((tile (cl-tiled:object-tile object)))
-    (draw-tile tile
-               (vec2 0 (- (cl-tiled:tile-height tile )))
+    (draw-tile tile *zero-vec*
                :flip-x (cl-tiled:object-flipped-horizontal object)
-               :flip-y (cl-tiled:object-flipped-vertical object))))
+               :flip-y (cl-tiled:object-flipped-vertical object)
+               :width (cl-tiled:object-width object)
+               :height (cl-tiled:object-height object))))
 
 (defmethod draw ((object cl-tiled:text-object))
   ;; TODO
